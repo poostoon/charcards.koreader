@@ -60,6 +60,22 @@ This means you can decide yourself which passages are important enough to add to
 
 You can also edit every field of a character card manually.
 
+### Merge characters
+
+Sometimes two cards turn out to be the same person (for example, a nickname you did not recognise at first). You can merge them into one.
+
+Open **Character Cards → Merge characters**, then:
+
+1. Pick the **main card** — the one you want to keep.
+2. Pick the card to merge into it.
+3. Confirm.
+
+The name and aliases of the second card become aliases of the main card, the fields and relationships are combined (nothing is duplicated, nothing is lost), and the second card is deleted. If the main card already has a most distinctive trait, it stays.
+
+You can also open a card from the character list and tap **Merge another into this** — the card you are viewing becomes the main one.
+
+Merging works offline and does not send anything to Gemini. It can be undone with **Character Cards → Undo last action** (see below) — both cards come back exactly as they were.
+
 ### Undo the last action
 
 Selected the wrong character by mistake, or added a character you didn't want? You can undo it.
@@ -71,7 +87,8 @@ Open:
 CharCards asks for confirmation (**Undo** / **Keep**) and then reverts the last change:
 
 * **Add to Character** — the character card goes back to exactly how it was before that update;
-* **Add Character** — the newly created card is removed.
+* **Add Character** — the newly created card is removed;
+* **Merge characters** — both cards come back exactly as they were before the merge.
 
 The menu item is greyed out when there is nothing to undo. Once you have done something that can be undone, its name tells you exactly what will be reverted, for example **Undo: update of «Jack»**.
 
@@ -260,6 +277,16 @@ MIT — see [LICENSE](https://github.com/poostoon/charcards/blob/main/LICENSE).
 
 * **Ручне редагування.** Будь-яке поле картки (включно з ім'ям) можна
   виправити вручну через «Змінити персонажа» — окремий діалог на кожне поле.
+
+* **Обʼєднати персонажів.** Якщо виявилось, що дві картки — це один і той
+  самий персонаж (наприклад, прізвисько, яке спершу не впізнав), відкрий
+  **Картки персонажів → Обʼєднати персонажів**: обери головну картку (її
+  залишимо), потім ту, що вливається, і підтверди. Імʼя й псевдоніми другої
+  картки стануть псевдонімами головної, поля й звʼязки обʼєднаються (без
+  дублів і без втрат), друга картка видалиться. Те саме можна зробити з
+  картки персонажа кнопкою **«Влити іншого сюди»** — тоді головною буде та,
+  яку ти переглядаєш. Працює без інтернету. Обʼєднання можна скасувати
+  через **Скасувати останню дію** — обидві картки повернуться як були.
 
 * **Скасувати останню дію.** Якщо додав інформацію не тому персонажу (чи
   додав зайвого) — відкрий **Картки персонажів → Скасувати останню дію**.

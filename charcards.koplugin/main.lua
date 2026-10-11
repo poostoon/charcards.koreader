@@ -75,12 +75,22 @@ end
 local L = {
     -- Скасування останньої дії
     btn_keep = "Залишити",
+    menu_merge = "Обʼєднати персонажів",
+    merge_need_two = "Для обʼєднання потрібні щонайменше двоє персонажів.",
+    merge_pick_main = "Головна картка (її залишимо)",
+    merge_pick_source = "Яку картку влити в «{{name}}»?",
+    merge_confirm = "Влити «{{source}}» в «{{target}}»?\n\nІмʼя й псевдоніми «{{source}}» стануть псевдонімами «{{target}}», поля й звʼязки обʼєднаються, а картку «{{source}}» буде видалено.\n\nЦе можна скасувати через меню.",
+    btn_merge_confirm = "Обʼєднати",
+    merge_done = "Обʼєднано: «{{target}}».",
+    merge_into_btn = "Влити іншого сюди",
     btn_undo_confirm = "Скасувати дію",
     menu_undo_none = "Скасувати останню дію",
     menu_undo_update = "Скасувати: оновлення «{{name}}»",
     menu_undo_create = "Скасувати: додавання «{{name}}»",
     undo_confirm_update = "Скасувати останнє оновлення картки «{{name}}»?\n\nКартка повернеться до стану до цього оновлення.",
     undo_confirm_create = "Скасувати додавання персонажа «{{name}}»?\n\nКартку буде видалено.",
+    menu_undo_merge = "Скасувати: обʼєднання в «{{name}}»",
+    undo_confirm_merge = "Скасувати обʼєднання персонажів у «{{name}}»?\n\nКартка «{{name}}» повернеться до стану до обʼєднання, а «{{source}}» знову зʼявиться окремою карткою.",
     undo_done = "Скасовано.",
     undo_nothing = "Нема чого скасовувати.",
     undo_char_missing = "Цього персонажа вже нема — скасовувати нічого.",
@@ -893,6 +903,14 @@ local function applyUndo(cards, rec)
         if c.id == rec.id then
             if rec.kind == "create" then
                 table.remove(cards, i)
+            elseif rec.kind == "merge" then
+                cards[i] = deepCopy(rec.before)
+                local exists = false
+                for _, o in ipairs(cards) do if o.id == rec.source.id then exists = true end end
+                if not exists then
+                    table.insert(cards, math.min(rec.source_index or (#cards + 1), #cards + 1),
+                                 deepCopy(rec.source))
+                end
             else
                 cards[i] = deepCopy(rec.before)
             end
@@ -1057,6 +1075,38 @@ local function combineCardsForSeries(existing, incoming)
     end
 
     return changed
+end
+
+-- Вливає картку source в картку target (два імені одного персонажа):
+-- імʼя й псевдоніми source стають псевдонімами target, поля й звʼязки
+-- обʼєднуються консервативно (як при привʼязці до серії, без AI).
+-- Характерна риса target лишається, якщо вона є. Змінює target на місці.
+local function mergeCharacterCards(target, source)
+    local incoming = deepCopy(source)
+    incoming.aliases = incoming.aliases or {}
+    table.insert(incoming.aliases, 1, source.name)
+    if trim(target.standout_trait or "") ~= "" then incoming.standout_trait = "" end
+    return combineCardsForSeries(target, incoming)
+end
+
+-- Виконує обʼєднання у списку карток за id. Повертає запис для "Скасувати"
+-- або nil, якщо якоїсь з карток нема / це одна й та сама картка.
+local function applyMerge(cards, target_id, source_id)
+    if target_id == source_id then return nil end
+    local ti, si
+    for i, c in ipairs(cards) do
+        if c.id == target_id then ti = i elseif c.id == source_id then si = i end
+    end
+    if not ti or not si then return nil end
+    local target, source = cards[ti], cards[si]
+    local rec = {
+        kind = "merge", id = target.id, name = target.name,
+        source = deepCopy(source), source_name = source.name, source_index = si,
+        before = deepCopy(target),
+    }
+    mergeCharacterCards(target, source)
+    table.remove(cards, si)
+    return rec
 end
 
 -- Компактна картка для попапу при тапу на підкреслене ім'я в тексті:
@@ -1776,6 +1826,76 @@ function CharCards:_incrementalScan(new_terms)
     UIManager:scheduleIn(0.02, step)
 end
 
+-- ===== Обʼєднати персонажів =====
+
+-- Показує список карток (окрім exclude_id) і викликає on_pick(card).
+function CharCards:_pickCard(title, exclude_id, on_pick)
+    local cards = loadCards(self)
+    local sorted_cards = {}
+    for _, c in ipairs(cards) do
+        if c.id ~= exclude_id then table.insert(sorted_cards, c) end
+    end
+    table.sort(sorted_cards, function(a, b) return ukNameLess(a.name, b.name) end)
+    local picker
+    local items = {}
+    for _, c in ipairs(sorted_cards) do
+        table.insert(items, {
+            text     = c.name,
+            callback = function()
+                UIManager:close(picker)
+                on_pick(c)
+            end,
+        })
+    end
+    picker = Menu:new{
+        title       = title,
+        item_table  = items,
+        width       = Screen:getWidth(),
+        show_parent = self.ui,
+    }
+    UIManager:show(picker)
+end
+
+-- main_card (необовʼязково) — вже обрана головна картка; інакше питаємо.
+function CharCards:onMergeCharacters(main_card)
+    if not self.ui.doc_settings then
+        UIManager:show(InfoMessage:new{ text = L.no_book_open })
+        return
+    end
+    local cards = loadCards(self)
+    if #cards < 2 then
+        UIManager:show(InfoMessage:new{ text = L.merge_need_two, timeout = 3 })
+        return
+    end
+    local self_ref = self
+    local function pickSource(main)
+        self_ref:_pickCard(fillTemplate(L.merge_pick_source, { name = main.name }), main.id, function(src)
+            UIManager:show(ConfirmBox:new{
+                text = fillTemplate(L.merge_confirm, { source = src.name, target = main.name }),
+                ok_text = L.btn_merge_confirm,
+                cancel_text = L.btn_keep,
+                ok_callback = function()
+                    local fresh = loadCards(self_ref)
+                    local rec = applyMerge(fresh, main.id, src.id)
+                    if not rec then
+                        UIManager:show(InfoMessage:new{ text = L.undo_char_missing, timeout = 3 })
+                        return
+                    end
+                    saveCards(self_ref, fresh)      -- скидає _cc_undo...
+                    self_ref._cc_undo = rec         -- ...тож виставляємо запис ПІСЛЯ
+                    UIManager:show(InfoMessage:new{
+                        text = fillTemplate(L.merge_done, { target = main.name }), timeout = 2 })
+                end,
+            })
+        end)
+    end
+    if main_card then
+        pickSource(main_card)
+    else
+        self:_pickCard(L.merge_pick_main, nil, pickSource)
+    end
+end
+
 -- ===== Скасувати останню дію (додавання персонажа / оновлення картки) =====
 
 function CharCards:undoLastAction()
@@ -1786,8 +1906,10 @@ function CharCards:undoLastAction()
     end
     local self_ref = self
     UIManager:show(ConfirmBox:new{
-        text = fillTemplate(rec.kind == "create" and L.undo_confirm_create or L.undo_confirm_update,
-                            { name = rec.name }),
+        text = fillTemplate(rec.kind == "create" and L.undo_confirm_create
+                            or rec.kind == "merge" and L.undo_confirm_merge
+                            or L.undo_confirm_update,
+                            { name = rec.name, source = rec.source_name or "" }),
         ok_text     = L.btn_undo_confirm,
         cancel_text = L.btn_keep,
         ok_callback = function()
@@ -1817,11 +1939,18 @@ function CharCards:addToMainMenu(menu_items)
                 text_func = function()
                     local rec = self_ref._cc_undo
                     if not rec then return L.menu_undo_none end
-                    return fillTemplate(rec.kind == "create" and L.menu_undo_create or L.menu_undo_update,
+                    return fillTemplate(rec.kind == "create" and L.menu_undo_create
+                                        or rec.kind == "merge" and L.menu_undo_merge
+                                        or L.menu_undo_update,
                                         { name = rec.name })
                 end,
                 enabled_func = function() return self_ref._cc_undo ~= nil end,
                 callback = function() self_ref:undoLastAction() end,
+            },
+            {
+                text     = L.menu_merge,
+                enabled_func = function() return self_ref.ui and self_ref.ui.doc_settings ~= nil end,
+                callback = function() self_ref:onMergeCharacters() end,
             },
             {
                 text_func = function()
@@ -2429,6 +2558,14 @@ function CharCards:showCardView(card)
                 callback = function()
                     UIManager:close(viewer)
                     self_ref:onEditCard(card)
+                end,
+            },
+        }, {
+            {
+                text = L.merge_into_btn,
+                callback = function()
+                    UIManager:close(viewer)
+                    self_ref:onMergeCharacters(card)
                 end,
             },
         }},
